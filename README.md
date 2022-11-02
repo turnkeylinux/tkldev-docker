@@ -1,8 +1,6 @@
 # tkl-dockerize
 
-This is a generic set of utilities to turn TurnKey Linux .iso images into Docker images.
-
-## tkldev tmpfs mount
+This is a generic script to turn TurnKey Linux .iso images into Docker images.
 
 For TKLDev to run properly, it needs to be running with a non-overlayfs mount at the .deck of whatever appliances you intend to build (or upper in the filesystem, e. g. at `/turnkey/fab/products` which allows you to persist products across TKLDev versions).
 
@@ -27,4 +25,5 @@ $ docker run --rm -it --tmpfs /tmp --tmpfs /run --tmpfs /run/lock -v /sys/fs/cgr
 ```
 
 TODO: Improve the systemd experience
+
 TODO: Drop some privileges?
