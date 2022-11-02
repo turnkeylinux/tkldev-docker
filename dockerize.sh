@@ -30,12 +30,6 @@ fi
 
 unsquashfs -no-exit-code 10root.squashfs
 
-# TODO: patch upstream to detect if systemd is running or not?
-# PROXYHOOK='squashfs-root/usr/lib/inithooks/firstboot.d/20regen-proxy-cert'
-# if [[ -e "$PROXYHOOK" ]]; then
-#     sed -i '/systemctl stop squid.service/d; s|systemctl start squid.service|/etc/init.d/squid start|' "$PROXYHOOK"
-# fi
-
 cp inithooks.conf squashfs-root/etc/inithooks.conf
 
 tar -C squashfs-root -czf - . | docker import \
