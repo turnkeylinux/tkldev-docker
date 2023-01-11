@@ -30,7 +30,40 @@ fi
 
 unsquashfs -no-exit-code 10root.squashfs
 
+# preseed inithooks
 cp inithooks.conf squashfs-root/etc/inithooks.conf
+# do not start confconsole on login
+sed -i '/autostart/s|once|false|' squashfs-root/etc/confconsole/confconsole.conf
+# redirect inithooks output
+sed -i '/REDIRECT_OUTPUT/s|false|true|' squashfs-root/etc/default/inithooks
+# do not configure networking (docker does it)
+sed -i '/CONFIGURE_INTERFACES/{s|#||;s|yes|no|}' squashfs-root/etc/default/networking
+# do not run traditional tty8 inithooks
+rm squashfs-root/etc/systemd/system/multi-user.target.wants/inithooks.service
+# create docker-specific inithooks service
+# TODO organize this in a better way
+cat > squashfs-root/lib/systemd/system/inithooks-docker.service <<'EOF'
+[Unit]
+Description=inithooks-docker: firstboot and everyboot initialization scripts (docker)
+Before=container-getty@1.service
+ConditionKernelCommandLine=!noinithooks
+ConditionPathExists=/.dockerenv
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/inithooks
+ExecStart=/bin/sh -c '${INITHOOKS_PATH}/run'
+StandardOutput=journal+console
+StandardError=journal+console
+SyslogIdentifier=inithooks
+
+[Install]
+WantedBy=basic.target
+EOF
+# manually enable docker-specific inithooks service
+ln -sf /lib/systemd/system/inithooks-docker.service squashfs-root/etc/systemd/system/basic.target.wants/inithooks-docker.service
+# disable hostname manipulation (envvar clash with docker)
+chmod -x squashfs-root/usr/lib/inithooks/firstboot.d/09hostname
 
 tar -C squashfs-root -czf - . | docker import \
     -c 'ENTRYPOINT ["/sbin/init"]' \
