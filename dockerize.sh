@@ -22,10 +22,10 @@ fi
 trap 'rm -rf squashfs-root 10root.squashfs' EXIT INT
 
 # FIXME this is kind of weird
-if [[ "$NAME" = 'tkldev' ]]; then
-    isoinfo -i "$ISO" -x '/LIVE/10ROOT.SQUASHFS;1' > 10root.squashfs
-else
+if [[ "$NAME" = 'core' ]]; then
     isoinfo -i "$ISO" -x '/live/10root.squ;1' > 10root.squashfs
+else
+    isoinfo -i "$ISO" -x '/LIVE/10ROOT.SQUASHFS;1' > 10root.squashfs
 fi
 
 unsquashfs -no-exit-code 10root.squashfs
