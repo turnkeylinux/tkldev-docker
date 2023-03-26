@@ -1,3 +1,11 @@
+# NOTE
+
+This is a tool for internal use.
+
+It is not ready for general purpose use yet. Please do not file issues if it doesn't work.
+
+Using TKLDev in a VM or on bare metal and running appliances in a VM or on bare metal is the only supported way to build and run built appliances for now.
+
 # tkl-dockerize
 
 This is a generic script to turn TurnKey Linux .iso images into Docker images.
