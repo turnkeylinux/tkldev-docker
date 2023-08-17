@@ -1,7 +1,8 @@
 #!/bin/bash -e
 
-info() { echo "INFO: $@"; }
-fatal() { echo "FATAL: $@" >&2; exit 1; }
+info() { [[ -n "$quiet" ]] || echo "INFO: $@"; }
+warn() { [[ -n "$quiet" ]] || echo "WARN: $@" >&2; }
+fatal() { [[ -n "$quiet" ]] || echo "FATAL: $@" >&2; exit 1; }
 
 usage() {
     cat <<EOF
@@ -14,13 +15,17 @@ Args::
 
 Options::
 
-    -n|--name NAME      Use NAME for reulsting container (rather than guessing)
+    -n|--name NAME      Explicit NAME for container (otherwise will guess, or
+                        fall back to random string)
+    -d|--deck           When using -r|--rootfs, instead of copying rootFS, deck it
+                        before applying changes (requires 'deck' executable)
+    -q|--quiet          Supress all messages; echo container name on exit (if successful)
     -h|--help           Display this help and exit
 
 Env::
 
-    DOCKER              docker/podman binary; if not set, will default to docker and
-                        fall back to podman (and error if neither found)
+    DOCKER              docker/podman executable; if not set, will default to docker
+                        and fall back to podman (and error if neither found)
     DEBUG               Enable verbose output, useful for debugging
 
 Note: To ensure correct filesystem permissions are maintained, this script must
@@ -31,85 +36,108 @@ EOF
         echo "FATAL: $@"
         exit 1
     fi
+    exit
 }
 
 [[ -z "$DEBUG" ]] || set -x
 
-unset iso rootfs name deps local_rootfs msg
+TMP=$(mktemp -d)
+[[ -n "$DEBUG" ]] || trap "rm -rf $TMP" EXIT INT
+
+unset iso rootfs name deps local_rootfs msg deck quiet
 while [[ $# -ge 1 ]]; do
     case $1 in
         -i|--iso)
             shift
-            iso=$1
-            shift;;
+            iso=$1;;
         -r|--rootfs)
             shift
-            rootfs=$1
-            shift;;
+            rootfs=$1;;
         -n|--name)
             shift
-            name=$1
-            shift;;
+            name=$1;;
+        -d|--deck)
+            deck=true;;
+        -q|--quiet)
+            quiet=true;;
         -h|--help)
             usage;;
         *)
             usage "Unknown argument: $1";;
     esac
+    shift
 done
 
 unpack_iso() {
     local iso=$1
     local name=$2
-    [[ -n "$DEBUG" ]] || trap 'rm -rf squashfs-root 10root.squashfs' EXIT INT
-
+    info "Please wait while ISO is unpacked"
     # FIXME this is kind of weird
     if [[ "$name" = 'core' ]]; then
-        isoinfo -i "$iso" -x '/live/10root.squ;1' > 10root.squashfs
+        isoinfo -i "$iso" -x '/live/10root.squ;1' > $TMP/10root.squashfs
     else
-        isoinfo -i "$iso" -x '/LIVE/10ROOT.SQUASHFS;1' > 10root.squashfs
+        isoinfo -i "$iso" -x '/LIVE/10ROOT.SQUASHFS;1' > $TMP/10root.squashfs
     fi
-    unsquashfs -no-exit-code 10root.squashfs
-    echo "squashfs-root"
+    unsquashfs -no-exit-code $TMP/10root.squashfs
+    echo "$TMP/squashfs-root"
 }
 
 cp_rootfs() {
     local rootfs=$1
-    local name=$2
-    [[ -n "$DEBUG" ]] || trap 'rm -rf rootfs-root' EXIT INT
+    info "Please wait while rootFS is copied"
+    cp -Ra "$rootfs" $TMP/rootfs-root
+    echo "$TMP/rootfs-root"
+}
 
-    cp -Ra "$rootfs" rootfs-root
-    echo "rootfs-root"
+deck_rootfs() {
+    local rootfs=$1
+    if deck --isdeck "$rootfs"; then
+        if ! deck --ismounted "$rootfs"; then
+            deck "$rootfs"
+        fi
+        echo "$rootfs"
+        info "RootFS decked"
+    else
+        info "Please wait while rootFS is decked"
+        deck "$rootfs" "$TMP/deck-root"
+        echo "$TMP/deck-root"
+    fi
 }
 
 [[ $(id -u) -eq 0 ]] || fatal "Must be run as root; please re-run with sudo"
-
 deps="sed"
 if [[ -n "$iso" ]] && [[ -n "$rootfs" ]]; then
     fatal "Can't use both -i|--iso ISO and -r|--rootfs ROOTFS"
 elif [[ -n "$iso" ]]; then
     [[ -f "$iso" ]] || fatal "ISO file $iso not found"
+    [[ -z "$deck" ]] || warn "-d|--deck set but using iso as source - ignoring"
     if echo "$iso" | grep -q '/turnkey-tkldev'; then
         name="$(echo "$(basename "$iso")" | cut -d'-' -f2)"
     else
         name="$(basename "$iso" .iso)"
     fi
-    info "Please wait while the iso is unpacked"
-    local_rootfs=$(unpack_iso "$iso" "$name")
+    command_array=(unpack_iso "$iso" "$name")
     msg="Imported from iso squashfs: $iso"
     deps="$deps isoinfo unsquashfs"
 elif [[ -n "$rootfs" ]]; then
     [[ -d "$rootfs" ]] || fatal "Rootfs dir $rootfs not found"
+    [[ -z "$deck" ]] || deps="$deps deck"
     rootfs=$(realpath "$rootfs")
     if [[ "$rootfs" == "/turnkey/fab/products/"*"build/root."* ]]; then
         name=$(sed -E "s|/turnkey/fab/products/([a-z0-9-]+)/build/root.*|\1|" <<<"$rootfs")
     else
         name=$(mcookie)
-        warning "Name can not be determined, using random string, alternatively re-run with -n|--name"
+        warn "Name can not be determined, using random string, alternatively re-run with -n|--name"
     fi
-    info "Please wait while the rootfs is copied"
-    local_rootfs=$(cp_rootfs "$rootfs" "$name")
-    msg="Imported from rootfs: $rootfs"
-    deps="fab"
+    if [[ -n "$deck" ]]; then
+        info "Decking rootFS ($rootfs) rather than copying (-d|--deck given)"
+        deps="fab deck"
+        command_array=(deck_rootfs "$rootfs"
+    else
+        info "Please wait while the rootfs is copied"
+        command_array=(cp_rootfs "$rootfs" "$name")
+        msg="Imported from rootfs: $rootfs"
+        deps="fab"
 else
     fatal "Must give either -i|--iso ISO or -r|--rootfs ROOTFS"
 fi
@@ -132,6 +160,9 @@ for dep in $deps; do
     which "$dep" >/dev/null || missing="$missing $dep"
 done
 [[ -z "$missing" ]] || fatal "Missing dependencies: $missing"
+
+# run relevant command
+local_rootfs=$(${command_array[@]})
 
 info "Patching local rootfs"
 # preseed inithooks
@@ -204,9 +235,11 @@ fi
 # remove sockets to stop tar from whinging
 find "$local_rootfs" -type s -exec rm {} \;
 
-info "Please wait while docker container (named tkl/$name) is created"
+info "Please wait while docker container is created"
 tar -C "$local_rootfs" -czf - . | $DOCKER import \
     -c 'ENTRYPOINT ["/sbin/init"]' \
     -m "$msg" \
     - \
     "tkl/$name"
+info "Successfully created container:"
+echo "tkl/$name"
