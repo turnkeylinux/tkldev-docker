@@ -96,9 +96,7 @@ deck_rootfs() {
             deck "$rootfs"
         fi
         echo "$rootfs"
-        info "RootFS decked"
     else
-        info "Please wait while rootFS is decked"
         deck "$rootfs" "$TMP/deck-root"
         echo "$TMP/deck-root"
     fi
@@ -108,6 +106,8 @@ deck_rootfs() {
 deps="sed"
 if [[ -n "$iso" ]] && [[ -n "$rootfs" ]]; then
     fatal "Can't use both -i|--iso ISO and -r|--rootfs ROOTFS"
+elif [[ -z "$iso" ]] && [[ -z "$rootfs" ]]; then
+    fatal "Must specify either -i|--iso ISO or -r|--rootfs ROOTFS"
 elif [[ -n "$iso" ]]; then
     [[ -f "$iso" ]] || fatal "ISO file $iso not found"
     [[ -z "$deck" ]] || warn "-d|--deck set but using iso as source - ignoring"
@@ -132,18 +132,18 @@ elif [[ -n "$rootfs" ]]; then
     if [[ -n "$deck" ]]; then
         info "Decking rootFS ($rootfs) rather than copying (-d|--deck given)"
         deps="fab deck"
-        command_array=(deck_rootfs "$rootfs"
+        command_array=(deck_rootfs "$rootfs")
     else
         info "Please wait while the rootfs is copied"
         command_array=(cp_rootfs "$rootfs" "$name")
         msg="Imported from rootfs: $rootfs"
         deps="fab"
-else
-    fatal "Must give either -i|--iso ISO or -r|--rootfs ROOTFS"
+    fi
 fi
 
 missing=''
-DOCKER=$(grep -w "docker\|podman" <<<$DOCKER)
+# ensure that DOCKER can only be docker or podman
+DOCKER=$(grep -w "docker\|podman" <<<$DOCKER) || true
 if [[ -z "$DOCKER" ]]; then
     if which docker >/dev/null; then
         export DOCKER=docker
@@ -156,13 +156,15 @@ else
     if ! which $DOCKER >/dev/null; then
         missing="$DOCKER"
     fi
+fi
+
 for dep in $deps; do
     which "$dep" >/dev/null || missing="$missing $dep"
 done
 [[ -z "$missing" ]] || fatal "Missing dependencies: $missing"
 
 # run relevant command
-local_rootfs=$(${command_array[@]})
+local_rootfs="$(${command_array[@]})"
 
 info "Patching local rootfs"
 # preseed inithooks
