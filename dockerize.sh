@@ -220,7 +220,7 @@ fi
 sysd=$local_rootfs/etc/systemd/system
 for _file in $sysd/{inithooks-docker.service,inithooks-podman.service}; do
     if [[ -f "$_file" ]]; then
-        ln -sf $_file $local_rootfs/etc/systemd/system/basic.target.wants/$(basname $_file)
+        ln -sf $_file $local_rootfs/etc/systemd/system/basic.target.wants/$(basename $_file)
     fi
 done
 
