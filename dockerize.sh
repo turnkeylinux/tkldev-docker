@@ -2,7 +2,7 @@
 
 info() { [[ -n "$quiet" ]] || echo "INFO: $@"; }
 warn() { [[ -n "$quiet" ]] || echo "WARN: $@" >&2; }
-fatal() { [[ -n "$quiet" ]] || echo "FATAL: $@" >&2; exit 1; }
+fatal() { echo "FATAL: $@" >&2; exit 1; }
 
 usage() {
     cat <<EOF
@@ -19,7 +19,8 @@ Options::
                         fall back to random string)
     -d|--deck           When using -r|--rootfs, instead of copying rootFS, deck it
                         before applying changes (requires 'deck' executable)
-    -q|--quiet          Supress all messages; echo container name on exit (if successful)
+    -q|--quiet          Supress all messages, except fatal errors. Will output
+                        name (to stdout) on exit if successful
     -h|--help           Display this help and exit
 
 Env::
@@ -44,7 +45,7 @@ EOF
 TMP=$(mktemp -d)
 [[ -n "$DEBUG" ]] || trap "rm -rf $TMP" EXIT INT
 
-unset iso rootfs name deps local_rootfs msg deck quiet
+unset iso rootfs name deck quiet deps local_rootfs msg DOCKER_ARG
 while [[ $# -ge 1 ]]; do
     case $1 in
         -i|--iso)
@@ -59,6 +60,7 @@ while [[ $# -ge 1 ]]; do
         -d|--deck)
             deck=true;;
         -q|--quiet)
+            DOCKER_ARG="--quiet"
             quiet=true;;
         -h|--help)
             usage;;
@@ -71,20 +73,18 @@ done
 unpack_iso() {
     local iso=$1
     local name=$2
-    info "Please wait while ISO is unpacked"
     # FIXME this is kind of weird
     if [[ "$name" = 'core' ]]; then
         isoinfo -i "$iso" -x '/live/10root.squ;1' > $TMP/10root.squashfs
     else
         isoinfo -i "$iso" -x '/LIVE/10ROOT.SQUASHFS;1' > $TMP/10root.squashfs
     fi
-    unsquashfs -no-exit-code $TMP/10root.squashfs
+    unsquashfs -q -n -no-exit-code -d $TMP/squashfs-root $TMP/10root.squashfs
     echo "$TMP/squashfs-root"
 }
 
 cp_rootfs() {
     local rootfs=$1
-    info "Please wait while rootFS is copied"
     cp -Ra "$rootfs" $TMP/rootfs-root
     echo "$TMP/rootfs-root"
 }
@@ -111,13 +111,15 @@ elif [[ -z "$iso" ]] && [[ -z "$rootfs" ]]; then
 elif [[ -n "$iso" ]]; then
     [[ -f "$iso" ]] || fatal "ISO file $iso not found"
     [[ -z "$deck" ]] || warn "-d|--deck set but using iso as source - ignoring"
-    if echo "$iso" | grep -q '/turnkey-tkldev'; then
-        name="$(echo "$(basename "$iso")" | cut -d'-' -f2)"
-    else
-        name="$(basename "$iso" .iso)"
+    if [[ -z "$name" ]]; then
+        if echo "$iso" | grep -q '/turnkey-tkldev'; then
+            name="$(echo "$(basename "$iso")" | cut -d'-' -f2)"
+        else
+            name="$(basename "$iso" .iso)"
+        fi
     fi
     command_array=(unpack_iso "$iso" "$name")
-    msg="Imported from iso squashfs: $iso"
+    msg="Imported $appname from iso: $iso"
     deps="$deps isoinfo unsquashfs"
 elif [[ -n "$rootfs" ]]; then
     [[ -d "$rootfs" ]] || fatal "Rootfs dir $rootfs not found"
@@ -129,6 +131,7 @@ elif [[ -n "$rootfs" ]]; then
         name=$(mcookie)
         warn "Name can not be determined, using random string, alternatively re-run with -n|--name"
     fi
+    msg="Imported $appname from rootfs: $rootfs"
     if [[ -n "$deck" ]]; then
         info "Decking rootFS ($rootfs) rather than copying (-d|--deck given)"
         deps="fab deck"
@@ -136,7 +139,6 @@ elif [[ -n "$rootfs" ]]; then
     else
         info "Please wait while the rootfs is copied"
         command_array=(cp_rootfs "$rootfs" "$name")
-        msg="Imported from rootfs: $rootfs"
         deps="fab"
     fi
 fi
@@ -163,8 +165,9 @@ for dep in $deps; do
 done
 [[ -z "$missing" ]] || fatal "Missing dependencies: $missing"
 
-# run relevant command
-local_rootfs="$(${command_array[@]})"
+# show relevant msg & run relevant command
+info $msg
+local_rootfs=$(${command_array[@]})
 
 info "Patching local rootfs"
 # preseed inithooks
@@ -238,7 +241,7 @@ fi
 find "$local_rootfs" -type s -exec rm {} \;
 
 info "Please wait while docker container is created"
-tar -C "$local_rootfs" -czf - . | $DOCKER import \
+tar -C "$local_rootfs" -czf - . | $DOCKER import $DOCKER_ARG \
     -c 'ENTRYPOINT ["/sbin/init"]' \
     -m "$msg" \
     - \
