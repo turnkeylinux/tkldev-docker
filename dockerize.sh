@@ -143,27 +143,28 @@ elif [[ -n "$rootfs" ]]; then
     fi
 fi
 
-missing=''
-# ensure that DOCKER can only be docker or podman
-DOCKER=$(grep -w "docker\|podman" <<<$DOCKER) || true
-if [[ -z "$DOCKER" ]]; then
-    if which docker >/dev/null; then
-        export DOCKER=docker
-    elif which podman >/dev/null; then
-        export DOCKER=podman
-    else
-        missing="docker|podman"
-    fi
+missing=()
+
+# sane default for unset $DOCKER
+
+if [[ -n "$DOCKER" ]]; then
+    which "$DOCKER" >/dev/null || missing+=("$DOCKER")
 else
-    if ! which $DOCKER >/dev/null; then
-        missing="$DOCKER"
-    fi
+    for bin in docker podman; do
+        if which "$bin" >/dev/null; then
+            export DOCKER="$bin"
+            break
+        fi
+    done
 fi
 
+[[ -n "$DOCKER" ]] || missing+=('docker|podman')
+
 for dep in $deps; do
-    which "$dep" >/dev/null || missing="$missing $dep"
+    which "$dep" >/dev/null || missing+=("$dep")
 done
-[[ -z "$missing" ]] || fatal "Missing dependencies: $missing"
+
+[[ "${#missing[@]}" -eq 0 ]] || fatal "Missing dependencies: ${missing[*]}"
 
 # show relevant msg & run relevant command
 info $msg
