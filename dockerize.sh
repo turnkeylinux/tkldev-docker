@@ -242,7 +242,7 @@ fi
 find "$local_rootfs" -type s -exec rm {} \;
 
 info "Please wait while docker container is created"
-tar -C "$local_rootfs" -czf - . | $DOCKER import $DOCKER_ARG \
+tar -C "$local_rootfs" -cf - . | $DOCKER import $DOCKER_ARG \
     -c 'ENTRYPOINT ["/sbin/init"]' \
     -m "$msg" \
     - \
