@@ -72,14 +72,14 @@ done
 
 unpack_iso() {
     local iso=$1
-    local name=$2
-    # FIXME this is kind of weird
-    if [[ "$name" = 'core' ]]; then
-        isoinfo -i "$iso" -x '/live/10root.squ;1' > $TMP/10root.squashfs
-    else
-        isoinfo -i "$iso" -x '/LIVE/10ROOT.SQUASHFS;1' > $TMP/10root.squashfs
-    fi
-    unsquashfs -q -n -no-exit-code -d $TMP/squashfs-root $TMP/10root.squashfs
+    local isoroot="$TMP/isoroot"
+
+    mkdir "$isoroot"
+    mount -o loop,ro "$iso" "$TMP/isoroot"
+    unsquashfs -q -n -no-exit-code -d "$TMP/squashfs-root" "$isoroot/live/10root.squashfs"
+    umount "$isoroot"
+    rmdir "$isoroot"
+
     echo "$TMP/squashfs-root"
 }
 
@@ -118,9 +118,9 @@ elif [[ -n "$iso" ]]; then
             name="$(basename "$iso" .iso)"
         fi
     fi
-    command_array=(unpack_iso "$iso" "$name")
+    command_array=(unpack_iso "$iso")
     msg="Imported $appname from iso: $iso"
-    deps="$deps isoinfo unsquashfs"
+    deps="$deps unsquashfs"
 elif [[ -n "$rootfs" ]]; then
     [[ -d "$rootfs" ]] || fatal "Rootfs dir $rootfs not found"
     [[ -z "$deck" ]] || deps="$deps deck"
