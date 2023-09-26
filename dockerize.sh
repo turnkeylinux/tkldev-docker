@@ -180,7 +180,7 @@ sed -i '/REDIRECT_OUTPUT/s|false|true|' "$local_rootfs/etc/default/inithooks"
 sed -i '/CONFIGURE_INTERFACES/{s|#||;s|yes|no|}' "$local_rootfs/etc/default/networking"
 
 if [[ "$DOCKER" == "docker" ]]; then
-    cat > $local_rootfs/etc/lib/systemd/system/inithooks-docker.service <<'EOF'
+    cat > $local_rootfs/etc/systemd/system/inithooks-docker.service <<'EOF'
 [Unit]
 Description=inithooks-docker: firstboot and everyboot initialization scripts (docker)
 Before=container-getty@1.service
