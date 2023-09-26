@@ -42,7 +42,7 @@ EOF
 
 [[ -z "$DEBUG" ]] || set -x
 
-TMP=$(mktemp -d)
+TMP=$(mktemp --tmpdir -d tkl-dockerize.XXXXXXXXXX)
 [[ -n "$DEBUG" ]] || trap "rm -rf $TMP" EXIT INT
 
 unset iso rootfs name deck quiet deps local_rootfs msg DOCKER_ARG
