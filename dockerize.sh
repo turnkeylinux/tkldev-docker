@@ -1,12 +1,12 @@
 #!/bin/bash -e
 
-info() { [[ -n "$quiet" ]] || echo "INFO: $@"; }
-warn() { [[ -n "$quiet" ]] || echo "WARN: $@" >&2; }
-fatal() { echo "FATAL: $@" >&2; exit 1; }
+info() { [[ -n "$quiet" ]] || echo "INFO: $*"; }
+warn() { [[ -n "$quiet" ]] || echo "WARN: $*" >&2; }
+fatal() { echo "FATAL: $*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
-Syntax: $(basename $0) [-h|--help] [-i|--iso ISO | -r|--rootfs ROOTFS] [-n|--name NAME]
+Syntax: $(basename "$0") [-h|--help] [-i|--iso ISO | -r|--rootfs ROOTFS] [-n|--name NAME]
 
 Args::
 
@@ -34,7 +34,7 @@ Note: To ensure correct filesystem permissions are maintained, this script must
 
 EOF
     if [[ "$#" -ne 0 ]]; then
-        echo "FATAL: $@"
+        echo "FATAL: $*"
         exit 1
     fi
     exit
@@ -43,7 +43,7 @@ EOF
 [[ -z "$DEBUG" ]] || set -x
 
 TMP=$(mktemp --tmpdir -d tkl-dockerize.XXXXXXXXXX)
-[[ -n "$DEBUG" ]] || trap "rm -rf $TMP" EXIT INT
+[[ -n "$DEBUG" ]] || trap 'rm -rf $TMP' EXIT INT
 
 unset iso rootfs name deck quiet deps local_rootfs msg DOCKER_ARG
 while [[ $# -ge 1 ]]; do
@@ -85,7 +85,7 @@ unpack_iso() {
 
 cp_rootfs() {
     local rootfs=$1
-    cp -Ra "$rootfs" $TMP/rootfs-root
+    cp -Ra "$rootfs" "$TMP/rootfs-root"
     echo "$TMP/rootfs-root"
 }
 
@@ -113,13 +113,13 @@ elif [[ -n "$iso" ]]; then
     [[ -z "$deck" ]] || warn "-d|--deck set but using iso as source - ignoring"
     if [[ -z "$name" ]]; then
         if echo "$iso" | grep -q '/turnkey-tkldev'; then
-            name="$(echo "$(basename "$iso")" | cut -d'-' -f2)"
+            name="$(basename "$iso" | cut -d'-' -f2)"
         else
             name="$(basename "$iso" .iso)"
         fi
     fi
     command_array=(unpack_iso "$iso")
-    msg="Imported $appname from iso: $iso"
+    msg="Imported $name from iso: $iso"
     deps="$deps unsquashfs"
 elif [[ -n "$rootfs" ]]; then
     [[ -d "$rootfs" ]] || fatal "Rootfs dir $rootfs not found"
@@ -131,7 +131,7 @@ elif [[ -n "$rootfs" ]]; then
         name=$(mcookie)
         warn "Name can not be determined, using random string, alternatively re-run with -n|--name"
     fi
-    msg="Imported $appname from rootfs: $rootfs"
+    msg="Imported $name from rootfs: $rootfs"
     if [[ -n "$deck" ]]; then
         info "Decking rootFS ($rootfs) rather than copying (-d|--deck given)"
         deps="fab deck"
@@ -167,12 +167,12 @@ done
 [[ "${#missing[@]}" -eq 0 ]] || fatal "Missing dependencies: ${missing[*]}"
 
 # show relevant msg & run relevant command
-info $msg
-local_rootfs=$(${command_array[@]})
+info "$msg"
+local_rootfs=$("${command_array[@]}")
 
 info "Patching local rootfs"
 # preseed inithooks
-cp $(dirname $(realpath $0))/inithooks.conf "$local_rootfs/etc/inithooks.conf"
+cp "$(dirname "$(realpath "$0")")/inithooks.conf" "$local_rootfs/etc/inithooks.conf"
 # do not start confconsole on login
 sed -i '/autostart/s|once|false|' "$local_rootfs/etc/confconsole/confconsole.conf"
 # redirect inithooks output
@@ -181,7 +181,7 @@ sed -i '/REDIRECT_OUTPUT/s|false|true|' "$local_rootfs/etc/default/inithooks"
 sed -i '/CONFIGURE_INTERFACES/{s|#||;s|yes|no|}' "$local_rootfs/etc/default/networking"
 
 if [[ "$DOCKER" == "docker" ]]; then
-    cat > $local_rootfs/etc/systemd/system/inithooks-docker.service <<'EOF'
+    cat > "$local_rootfs/etc/systemd/system/inithooks-docker.service" <<'EOF'
 [Unit]
 Description=inithooks-docker: firstboot and everyboot initialization scripts (docker)
 Before=container-getty@1.service
@@ -200,7 +200,7 @@ SyslogIdentifier=inithooks
 WantedBy=basic.target
 EOF
     else
-cat > $local_rootfs/etc/systemd/system/inithooks-podman.service <<'EOF'
+cat > "$local_rootfs/etc/systemd/system/inithooks-podman.service" <<'EOF'
 [Unit]
 Description=inithooks-podman: firstboot and everyboot initialization scripts (podman)
 Before=console-getty.service
@@ -221,10 +221,10 @@ EOF
 fi
 
 # manually enable docker/podman specific inithooks services
-sysd=$local_rootfs/etc/systemd/system
+sysd="$local_rootfs/etc/systemd/system"
 for _file in $sysd/{inithooks-docker.service,inithooks-podman.service}; do
     if [[ -f "$_file" ]]; then
-        ln -sf $_file $local_rootfs/etc/systemd/system/basic.target.wants/$(basename $_file)
+        ln -sf "$_file" "$local_rootfs/etc/systemd/system/basic.target.wants/$(basename "$_file")"
     fi
 done
 
