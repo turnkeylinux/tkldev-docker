@@ -1,12 +1,12 @@
 #!/bin/bash -e
 
-info() { [[ -n "$quiet" ]] || echo "INFO: $@"; }
-warn() { [[ -n "$quiet" ]] || echo "WARN: $@" >&2; }
-fatal() { echo "FATAL: $@" >&2; exit 1; }
+info() { [[ -n "$quiet" ]] || echo "INFO: $*"; }
+warn() { [[ -n "$quiet" ]] || echo "WARN: $*" >&2; }
+fatal() { echo "FATAL: $*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
-Syntax: $(basename $0) [-h|--help] [-i|--iso ISO | -r|--rootfs ROOTFS] [-n|--name NAME]
+Syntax: $(basename "$0") [-h|--help] [-i|--iso ISO | -r|--rootfs ROOTFS] [-n|--name NAME]
 
 Args::
 
@@ -34,7 +34,7 @@ Note: To ensure correct filesystem permissions are maintained, this script must
 
 EOF
     if [[ "$#" -ne 0 ]]; then
-        echo "FATAL: $@"
+        echo "FATAL: $*"
         exit 1
     fi
     exit
@@ -42,8 +42,8 @@ EOF
 
 [[ -z "$DEBUG" ]] || set -x
 
-TMP=$(mktemp -d)
-[[ -n "$DEBUG" ]] || trap "rm -rf $TMP" EXIT INT
+TMP=$(mktemp --tmpdir -d tkl-dockerize.XXXXXXXXXX)
+[[ -n "$DEBUG" ]] || trap 'rm -rf $TMP' EXIT INT
 
 unset iso rootfs name deck quiet deps local_rootfs msg DOCKER_ARG
 while [[ $# -ge 1 ]]; do
@@ -72,20 +72,20 @@ done
 
 unpack_iso() {
     local iso=$1
-    local name=$2
-    # FIXME this is kind of weird
-    if [[ "$name" = 'core' ]]; then
-        isoinfo -i "$iso" -x '/live/10root.squ;1' > $TMP/10root.squashfs
-    else
-        isoinfo -i "$iso" -x '/LIVE/10ROOT.SQUASHFS;1' > $TMP/10root.squashfs
-    fi
-    unsquashfs -q -n -no-exit-code -d $TMP/squashfs-root $TMP/10root.squashfs
+    local isoroot="$TMP/isoroot"
+
+    mkdir "$isoroot"
+    mount -o loop,ro "$iso" "$TMP/isoroot"
+    unsquashfs -q -n -no-exit-code -d "$TMP/squashfs-root" "$isoroot/live/10root.squashfs"
+    umount "$isoroot"
+    rmdir "$isoroot"
+
     echo "$TMP/squashfs-root"
 }
 
 cp_rootfs() {
     local rootfs=$1
-    cp -Ra "$rootfs" $TMP/rootfs-root
+    cp -Ra "$rootfs" "$TMP/rootfs-root"
     echo "$TMP/rootfs-root"
 }
 
@@ -113,14 +113,14 @@ elif [[ -n "$iso" ]]; then
     [[ -z "$deck" ]] || warn "-d|--deck set but using iso as source - ignoring"
     if [[ -z "$name" ]]; then
         if echo "$iso" | grep -q '/turnkey-tkldev'; then
-            name="$(echo "$(basename "$iso")" | cut -d'-' -f2)"
+            name="$(basename "$iso" | cut -d'-' -f2)"
         else
             name="$(basename "$iso" .iso)"
         fi
     fi
-    command_array=(unpack_iso "$iso" "$name")
-    msg="Imported $appname from iso: $iso"
-    deps="$deps isoinfo unsquashfs"
+    command_array=(unpack_iso "$iso")
+    msg="Imported $name from iso: $iso"
+    deps="$deps unsquashfs"
 elif [[ -n "$rootfs" ]]; then
     [[ -d "$rootfs" ]] || fatal "Rootfs dir $rootfs not found"
     [[ -z "$deck" ]] || deps="$deps deck"
@@ -131,7 +131,7 @@ elif [[ -n "$rootfs" ]]; then
         name=$(mcookie)
         warn "Name can not be determined, using random string, alternatively re-run with -n|--name"
     fi
-    msg="Imported $appname from rootfs: $rootfs"
+    msg="Imported $name from rootfs: $rootfs"
     if [[ -n "$deck" ]]; then
         info "Decking rootFS ($rootfs) rather than copying (-d|--deck given)"
         deps="fab deck"
@@ -143,35 +143,36 @@ elif [[ -n "$rootfs" ]]; then
     fi
 fi
 
-missing=''
-# ensure that DOCKER can only be docker or podman
-DOCKER=$(grep -w "docker\|podman" <<<$DOCKER) || true
-if [[ -z "$DOCKER" ]]; then
-    if which docker >/dev/null; then
-        export DOCKER=docker
-    elif which podman >/dev/null; then
-        export DOCKER=podman
-    else
-        missing="docker|podman"
-    fi
+missing=()
+
+# sane default for unset $DOCKER
+
+if [[ -n "$DOCKER" ]]; then
+    which "$DOCKER" >/dev/null || missing+=("$DOCKER")
 else
-    if ! which $DOCKER >/dev/null; then
-        missing="$DOCKER"
-    fi
+    for bin in docker podman; do
+        if which "$bin" >/dev/null; then
+            export DOCKER="$bin"
+            break
+        fi
+    done
 fi
 
+[[ -n "$DOCKER" ]] || missing+=('docker|podman')
+
 for dep in $deps; do
-    which "$dep" >/dev/null || missing="$missing $dep"
+    which "$dep" >/dev/null || missing+=("$dep")
 done
-[[ -z "$missing" ]] || fatal "Missing dependencies: $missing"
+
+[[ "${#missing[@]}" -eq 0 ]] || fatal "Missing dependencies: ${missing[*]}"
 
 # show relevant msg & run relevant command
-info $msg
-local_rootfs=$(${command_array[@]})
+info "$msg"
+local_rootfs=$("${command_array[@]}")
 
 info "Patching local rootfs"
 # preseed inithooks
-cp $(dirname $(realpath $0))/inithooks.conf "$local_rootfs/etc/inithooks.conf"
+cp "$(dirname "$(realpath "$0")")/inithooks.conf" "$local_rootfs/etc/inithooks.conf"
 # do not start confconsole on login
 sed -i '/autostart/s|once|false|' "$local_rootfs/etc/confconsole/confconsole.conf"
 # redirect inithooks output
@@ -180,7 +181,7 @@ sed -i '/REDIRECT_OUTPUT/s|false|true|' "$local_rootfs/etc/default/inithooks"
 sed -i '/CONFIGURE_INTERFACES/{s|#||;s|yes|no|}' "$local_rootfs/etc/default/networking"
 
 if [[ "$DOCKER" == "docker" ]]; then
-    cat > $local_rootfs/etc/lib/systemd/system/inithooks-docker.service <<'EOF'
+    cat > "$local_rootfs/etc/systemd/system/inithooks-docker.service" <<'EOF'
 [Unit]
 Description=inithooks-docker: firstboot and everyboot initialization scripts (docker)
 Before=container-getty@1.service
@@ -199,7 +200,7 @@ SyslogIdentifier=inithooks
 WantedBy=basic.target
 EOF
     else
-cat > $local_rootfs/etc/systemd/system/inithooks-podman.service <<'EOF'
+cat > "$local_rootfs/etc/systemd/system/inithooks-podman.service" <<'EOF'
 [Unit]
 Description=inithooks-podman: firstboot and everyboot initialization scripts (podman)
 Before=console-getty.service
@@ -220,10 +221,10 @@ EOF
 fi
 
 # manually enable docker/podman specific inithooks services
-sysd=$local_rootfs/etc/systemd/system
+sysd="$local_rootfs/etc/systemd/system"
 for _file in $sysd/{inithooks-docker.service,inithooks-podman.service}; do
     if [[ -f "$_file" ]]; then
-        ln -sf $_file $local_rootfs/etc/systemd/system/basic.target.wants/$(basename $_file)
+        ln -sf "$_file" "$local_rootfs/etc/systemd/system/basic.target.wants/$(basename "$_file")"
     fi
 done
 
@@ -241,7 +242,7 @@ fi
 find "$local_rootfs" -type s -exec rm {} \;
 
 info "Please wait while docker container is created"
-tar -C "$local_rootfs" -czf - . | $DOCKER import $DOCKER_ARG \
+tar -C "$local_rootfs" -cf - . | $DOCKER import $DOCKER_ARG \
     -c 'ENTRYPOINT ["/sbin/init"]' \
     -m "$msg" \
     - \
