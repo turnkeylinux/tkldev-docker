@@ -116,6 +116,9 @@ elif [[ -n "$iso" ]]; then
             name="$(basename "$iso" | cut -d'-' -f2)"
         else
             name="$(basename "$iso" .iso)"
+            if [[ $name == product ]] && [[ $(basename $(dirname "$iso")) == "build" ]]; then
+                name="$(basename $(dirname $(dirname "$iso")))"
+            fi
         fi
     fi
     command_array=(unpack_iso "$iso")
