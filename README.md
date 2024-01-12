@@ -27,7 +27,7 @@ And after using the TKLDev instance created above to build products as usual:
 
 ```shell
 $ mv product.iso core.iso # so the script knows what it's dealing with
-$ sudo ./dockerize.sh core.iso
+$ sudo ./dockerize.sh -i core.iso
 $ docker run -it --tmpfs /tmp --tmpfs /run -v /sys/fs/cgroup:/sys/fs/cgroup:ro tkl/core
 $ docker run --rm -it --tmpfs /tmp --tmpfs /run --tmpfs /run/lock -v /sys/fs/cgroup:/sys/fs/cgroup -v /sys/fs/cgroup/systemd:/sys/fs/cgroup/systemd tkl/core
 ```
