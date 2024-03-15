@@ -1,6 +1,7 @@
 #!/bin/bash
 
 CONT_ID="$1"
+MAX_COUNT=${MAX_COUNT:-40}
 
 if [[ -z $CONT_ID ]]; then
     echo "usage: $0 <container-id>" >&2
@@ -20,7 +21,7 @@ fi
 
 count=0
 while true; do
-    if ((count > 40)); then
+    if ((count > $MAX_COUNT)); then
         echo "didn't start in time" >&2
         exit 1
     fi
